@@ -10,6 +10,7 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 const GROQ_KEY_PRO  = process.env.GROQ_KEY_PRO  || 'COLOQUE_SUA_CHAVE_PRO_AQUI';
 const GROQ_KEY_FREE = process.env.GROQ_KEY_FREE || 'COLOQUE_SUA_CHAVE_FREE_AQUI';
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 // =====================================================
 
 const MODELS_PRO = [
@@ -38,6 +39,46 @@ function incrementCount(uid) {
   dailyCounts[key] = (dailyCounts[key] || 0) + 1;
 }
 
+// =====================================================
+// 🔍 PESQUISA TAVILY
+// =====================================================
+async function tavilySearch(query) {
+  if (!TAVILY_API_KEY) return null;
+  try {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TAVILY_API_KEY,
+        query,
+        search_depth: 'basic',
+        max_results: 5
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.results || !data.results.length) return null;
+    return data.results.map(r => `- ${r.title}: ${r.content}`).join('\n');
+  } catch (e) {
+    console.error('Erro Tavily:', e.message);
+    return null;
+  }
+}
+
+// Detecta se a pergunta precisa de pesquisa na web
+function precisaPesquisar(messages) {
+  const ultima = messages[messages.length - 1];
+  const texto = (typeof ultima.content === 'string' ? ultima.content : '').toLowerCase();
+  const palavras = [
+    'hoje', 'agora', 'atual', 'atualmente', 'recente', 'notícia', 'noticia',
+    'último', 'ultima', 'novidade', '2024', '2025', '2026',
+    'preço', 'preco', 'valor', 'cotação', 'cotacao', 'clima', 'tempo',
+    'quem ganhou', 'resultado', 'jogo', 'partida', 'placar'
+  ];
+  return palavras.some(p => texto.includes(p));
+}
+// =====================================================
+
 // Rota principal do chat
 app.post('/chat', async (req, res) => {
   const { messages, uid, plano } = req.body;
@@ -46,15 +87,33 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros inválidos.' });
   }
 
-  const PRO_DAILY_LIMIT = 50; // mensagens no modelo Pro por dia
+  const PRO_DAILY_LIMIT = 50;
   const count = getCount(uid);
   const usePro = plano === 'pro' && count < PRO_DAILY_LIMIT;
 
   const apiKey = usePro ? GROQ_KEY_PRO : GROQ_KEY_FREE;
   const models = usePro ? MODELS_PRO : MODELS_FREE;
-
-  // Avisa o front se caiu pro plano free
   const droppedToFree = plano === 'pro' && !usePro;
+
+  // Verifica se precisa pesquisar e injeta resultado no contexto
+  let mensagensFinais = messages;
+  if (precisaPesquisar(messages)) {
+    const ultima = messages[messages.length - 1];
+    const query = typeof ultima.content === 'string' ? ultima.content : '';
+    const resultado = await tavilySearch(query);
+    if (resultado) {
+      // Injeta os resultados como contexto extra no system
+      const system = mensagensFinais.find(m => m.role === 'system');
+      const extras = `\n\n[Resultados de pesquisa atuais para ajudar na resposta]\n${resultado}\n[Fim dos resultados]`;
+      if (system) {
+        mensagensFinais = mensagensFinais.map(m =>
+          m.role === 'system' ? { ...m, content: m.content + extras } : m
+        );
+      } else {
+        mensagensFinais = [{ role: 'system', content: extras }, ...mensagensFinais];
+      }
+    }
+  }
 
   for (const model of models) {
     try {
@@ -66,7 +125,7 @@ app.post('/chat', async (req, res) => {
         },
         body: JSON.stringify({
           model,
-          messages,
+          messages: mensagensFinais,
           max_tokens: 1024,
           temperature: 0.7
         })
@@ -74,7 +133,7 @@ app.post('/chat', async (req, res) => {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        if (response.status === 429) continue; // tenta próximo modelo
+        if (response.status === 429) continue;
         throw new Error(err?.error?.message || `Erro ${response.status}`);
       }
 
