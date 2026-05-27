@@ -204,10 +204,17 @@ app.post('/chat', async (req, res) => {
     }
   }
 
-  // Tenta cada modelo em sequência (fallback automático em TODOS os erros)
-  for (const model of models) {
+  // Tenta cada combinação de chave+modelo (FREE primeiro, depois PRO como fallback)
+  const tentativas = [];
+  for (const model of MODELS_FREE) tentativas.push({ key: GROQ_KEY_FREE, model, tipo: 'FREE' });
+  if (GROQ_KEY_PRO) {
+    for (const model of MODELS_PRO) tentativas.push({ key: GROQ_KEY_PRO, model, tipo: 'PRO' });
+  }
+
+  for (const { key, model, tipo } of tentativas) {
+    if (!key) continue;
     try {
-      console.log(`[Chat] Tentando modelo: ${model}`);
+      console.log(`[Chat] Tentando [${tipo}] ${model}`);
 
       const response = await fetchWithTimeout(
         'https://api.groq.com/openai/v1/chat/completions',
@@ -215,7 +222,7 @@ app.post('/chat', async (req, res) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${key}`
           },
           body: JSON.stringify({
             model,
@@ -229,8 +236,7 @@ app.post('/chat', async (req, res) => {
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
-        console.warn(`[Chat] Modelo ${model} falhou (${response.status}): ${errMsg}`);
-        // 🔧 CORRIGIDO: continua no loop em TODOS os erros, não só 429
+        console.warn(`[Chat] [${tipo}] ${model} falhou (${response.status}): ${errMsg}`);
         continue;
       }
 
