@@ -6,10 +6,10 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // =====================================================
-// 🔧 SUAS CHAVES (só visíveis aqui no servidor)
+// 🔧 CHAVES DE API (configurar no Render como env vars)
 // =====================================================
-const GROQ_KEY_PRO  = process.env.GROQ_KEY_PRO  || 'COLOQUE_SUA_CHAVE_PRO_AQUI';
-const GROQ_KEY_FREE = process.env.GROQ_KEY_FREE || 'COLOQUE_SUA_CHAVE_FREE_AQUI';
+const GROQ_KEY_PRO   = process.env.GROQ_KEY_PRO   || '';
+const GROQ_KEY_FREE  = process.env.GROQ_KEY_FREE  || '';
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 // =====================================================
 
@@ -22,18 +22,34 @@ const MODELS_FREE = [
   'gemma2-9b-it',
 ];
 
-// Contagem diária por usuário (em memória — reseta quando servidor reinicia)
+const PRO_DAILY_LIMIT = 50;
+const FETCH_TIMEOUT_MS = 15000; // 15s timeout em todas as chamadas externas
+
+// =====================================================
+// ⏱️ HELPER: fetch com timeout
+// =====================================================
+async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// =====================================================
+// 📊 CONTAGEM DIÁRIA POR USUÁRIO (em memória)
+// =====================================================
 const dailyCounts = {};
 
 function getTodayKey(uid) {
-  const today = new Date().toDateString();
-  return `${uid}_${today}`;
+  return `${uid}_${new Date().toDateString()}`;
 }
-
 function getCount(uid) {
   return dailyCounts[getTodayKey(uid)] || 0;
 }
-
 function incrementCount(uid) {
   const key = getTodayKey(uid);
   dailyCounts[key] = (dailyCounts[key] || 0) + 1;
@@ -43,43 +59,95 @@ function incrementCount(uid) {
 // 🔍 PESQUISA TAVILY
 // =====================================================
 async function tavilySearch(query) {
-  if (!TAVILY_API_KEY) return null;
+  if (!TAVILY_API_KEY) {
+    console.log('[Tavily] Chave não configurada — pesquisa desativada.');
+    return null;
+  }
   try {
-    const res = await fetch('https://api.tavily.com/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: TAVILY_API_KEY,
-        query,
-        search_depth: 'basic',
-        max_results: 5
-      })
-    });
-    if (!res.ok) return null;
+    console.log(`[Tavily] Buscando: "${query}"`);
+    const res = await fetchWithTimeout(
+      'https://api.tavily.com/search',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: TAVILY_API_KEY,
+          query,
+          search_depth: 'basic',
+          max_results: 5,
+          include_answer: true
+        })
+      },
+      10000 // 10s para Tavily
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error(`[Tavily] Erro HTTP ${res.status}:`, errText);
+      return null;
+    }
+
     const data = await res.json();
-    if (!data.results || !data.results.length) return null;
-    return data.results.map(r => `- ${r.title}: ${r.content}`).join('\n');
+
+    if (!data.results || !data.results.length) {
+      console.log('[Tavily] Nenhum resultado encontrado.');
+      return null;
+    }
+
+    console.log(`[Tavily] ${data.results.length} resultado(s) encontrado(s).`);
+
+    let contexto = '';
+    if (data.answer) {
+      contexto += `Resumo: ${data.answer}\n\n`;
+    }
+    contexto += data.results
+      .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`)
+      .join('\n\n');
+
+    return contexto;
   } catch (e) {
-    console.error('Erro Tavily:', e.message);
+    if (e.name === 'AbortError') {
+      console.error('[Tavily] Timeout — pesquisa demorou demais.');
+    } else {
+      console.error('[Tavily] Exceção:', e.message);
+    }
     return null;
   }
 }
 
-// Detecta se a pergunta precisa de pesquisa na web
+// Detecta se a mensagem precisa de informações da web
 function precisaPesquisar(messages) {
   const ultima = messages[messages.length - 1];
-  const texto = (typeof ultima.content === 'string' ? ultima.content : '').toLowerCase();
-  const palavras = [
-    'hoje', 'agora', 'atual', 'atualmente', 'recente', 'notícia', 'noticia',
-    'último', 'ultima', 'novidade', '2024', '2025', '2026',
-    'preço', 'preco', 'valor', 'cotação', 'cotacao', 'clima', 'tempo',
-    'quem ganhou', 'resultado', 'jogo', 'partida', 'placar'
-  ];
-  return palavras.some(p => texto.includes(p));
-}
-// =====================================================
+  const texto = (typeof ultima.content === 'string'
+    ? ultima.content
+    : Array.isArray(ultima.content)
+      ? ultima.content.map(c => c.text || '').join(' ')
+      : ''
+  ).toLowerCase();
 
-// Rota principal do chat
+  const palavrasChave = [
+    'hoje', 'agora', 'atual', 'atualmente', 'recente', 'recentes',
+    'notícia', 'noticia', 'notícias', 'noticias', 'últimas', 'ultimas',
+    'último', 'ultima', 'novidade', 'novidades',
+    '2024', '2025', '2026',
+    'preço', 'preco', 'valor', 'cotação', 'cotacao', 'câmbio', 'cambio',
+    'clima', 'tempo', 'previsão', 'previsao',
+    'quem ganhou', 'resultado', 'placar', 'jogo', 'partida', 'campeonato',
+    'lançamento', 'lancamento', 'estreia', 'saiu',
+    'quem é', 'quem e', 'o que é', 'o que e', 'como está', 'como esta',
+    'o que está', 'o que esta', 'o que aconteceu', 'acontecendo',
+    'agência', 'agencia', 'governo', 'eleição', 'eleicao', 'presidente',
+    'pesquisa', 'busca', 'procura', 'encontra', 'latest', 'news'
+  ];
+
+  const precisar = palavrasChave.some(p => texto.includes(p));
+  if (precisar) console.log('[Pesquisa] Detectada necessidade de pesquisa web.');
+  return precisar;
+}
+
+// =====================================================
+// 💬 ROTA PRINCIPAL DE CHAT
+// =====================================================
 app.post('/chat', async (req, res) => {
   const { messages, uid, plano } = req.body;
 
@@ -87,54 +155,79 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros inválidos.' });
   }
 
-  const PRO_DAILY_LIMIT = 50;
   const count = getCount(uid);
   const usePro = plano === 'pro' && count < PRO_DAILY_LIMIT;
-
-  const apiKey = usePro ? GROQ_KEY_PRO : GROQ_KEY_FREE;
-  const models = usePro ? MODELS_PRO : MODELS_FREE;
   const droppedToFree = plano === 'pro' && !usePro;
 
-  // Verifica se precisa pesquisar e injeta resultado no contexto
+  // Seleciona chave e modelos
+  const apiKey = (usePro && GROQ_KEY_PRO) ? GROQ_KEY_PRO : GROQ_KEY_FREE;
+  const models = (usePro && GROQ_KEY_PRO) ? MODELS_PRO : MODELS_FREE;
+
+  // ⚠️ Fallback: se não tem chave PRO mas plano é pro, usa FREE silenciosamente
+  if (usePro && !GROQ_KEY_PRO && GROQ_KEY_FREE) {
+    console.warn('[Chat] GROQ_KEY_PRO ausente — usando FREE como fallback.');
+  }
+
+  console.log(`[Chat] uid=${uid} plano=${plano} usePro=${usePro} modelos=${models.join(', ')}`);
+
+  // Pesquisa Tavily se necessário
   let mensagensFinais = messages;
+  let usouTavily = false;
+
   if (precisaPesquisar(messages)) {
     const ultima = messages[messages.length - 1];
-    const query = typeof ultima.content === 'string' ? ultima.content : '';
+    const query = typeof ultima.content === 'string'
+      ? ultima.content
+      : Array.isArray(ultima.content)
+        ? ultima.content.map(c => c.text || '').join(' ')
+        : '';
+
     const resultado = await tavilySearch(query);
+
     if (resultado) {
-      // Injeta os resultados como contexto extra no system
-      const system = mensagensFinais.find(m => m.role === 'system');
-      const extras = `\n\n[Resultados de pesquisa atuais para ajudar na resposta]\n${resultado}\n[Fim dos resultados]`;
-      if (system) {
+      usouTavily = true;
+      const extras = `\n\n[INFORMAÇÕES ATUAIS DA WEB — use esses dados para responder com precisão]\n${resultado}\n[FIM DAS INFORMAÇÕES DA WEB]`;
+
+      const systemMsg = mensagensFinais.find(m => m.role === 'system');
+      if (systemMsg) {
         mensagensFinais = mensagensFinais.map(m =>
           m.role === 'system' ? { ...m, content: m.content + extras } : m
         );
       } else {
-        mensagensFinais = [{ role: 'system', content: extras }, ...mensagensFinais];
+        mensagensFinais = [{ role: 'system', content: extras.trim() }, ...mensagensFinais];
       }
+      console.log('[Chat] Contexto Tavily injetado no system.');
     }
   }
 
+  // Tenta cada modelo em sequência (fallback automático em TODOS os erros)
   for (const model of models) {
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages: mensagensFinais,
-          max_tokens: 1024,
-          temperature: 0.7
-        })
-      });
+      console.log(`[Chat] Tentando modelo: ${model}`);
+
+      const response = await fetchWithTimeout(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: mensagensFinais,
+            max_tokens: 1024,
+            temperature: 0.7
+          })
+        }
+      );
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        if (response.status === 429) continue;
-        throw new Error(err?.error?.message || `Erro ${response.status}`);
+        const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
+        console.warn(`[Chat] Modelo ${model} falhou (${response.status}): ${errMsg}`);
+        // 🔧 CORRIGIDO: continua no loop em TODOS os erros, não só 429
+        continue;
       }
 
       const data = await response.json();
@@ -142,24 +235,60 @@ app.post('/chat', async (req, res) => {
 
       if (usePro) incrementCount(uid);
 
+      console.log(`[Chat] ✅ Sucesso com ${model}. usouTavily=${usouTavily}`);
+
       return res.json({
         reply,
         model,
         droppedToFree,
+        usouTavily,
         proCount: getCount(uid),
         proLimit: PRO_DAILY_LIMIT
       });
 
     } catch (e) {
-      console.error(`Erro no modelo ${model}:`, e.message);
+      if (e.name === 'AbortError') {
+        console.error(`[Chat] Timeout no modelo ${model}`);
+      } else {
+        console.error(`[Chat] Erro no modelo ${model}:`, e.message);
+      }
+      // Continua para o próximo modelo
     }
   }
 
-  res.status(500).json({ error: 'Limite atingido em todos os modelos. Tente mais tarde!' });
+  console.error('[Chat] Todos os modelos falharam.');
+  return res.status(500).json({
+    error: 'Todos os modelos atingiram o limite. Tente novamente em alguns minutos!'
+  });
 });
 
-// Rota de saúde
-app.get('/', (req, res) => res.send('PaqueIA Backend rodando ✅'));
+// =====================================================
+// 🩺 ROTA DE SAÚDE / DIAGNÓSTICO
+// =====================================================
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'PaqueIA Backend',
+    tavily: !!TAVILY_API_KEY,
+    groqPro: !!GROQ_KEY_PRO,
+    groqFree: !!GROQ_KEY_FREE,
+    modelsPro: MODELS_PRO,
+    modelsFree: MODELS_FREE,
+    uptime: Math.floor(process.uptime()) + 's'
+  });
+});
+
+// Rota de diagnóstico de Tavily (para testar manualmente)
+app.get('/test-tavily', async (req, res) => {
+  const query = req.query.q || 'notícias do Brasil hoje';
+  const resultado = await tavilySearch(query);
+  res.json({
+    query,
+    tavilyKey: !!TAVILY_API_KEY,
+    resultado: resultado ? resultado.substring(0, 800) + '…' : null,
+    tavilyOk: !!resultado
+  });
+});
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor na porta ${PORT}`));
+app.listen(PORT, () => console.log(`✅ PaqueIA Backend rodando na porta ${PORT}`));
