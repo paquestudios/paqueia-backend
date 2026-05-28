@@ -8,16 +8,12 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 // 🔧 CHAVES DE API (configurar no Render como env vars)
 // =====================================================
-const GROQ_KEY_PRO   = process.env.GROQ_KEY_PRO   || '';
-const GROQ_KEY_FREE  = process.env.GROQ_KEY_FREE  || '';
+const GROQ_KEY_1     = process.env.GROQ_KEY_1     || '';
+const GROQ_KEY_2     = process.env.GROQ_KEY_2     || '';
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 // =====================================================
 
-const MODELS_PRO = [
-  'meta-llama/llama-4-scout-17b-16e-instruct',
-  'llama-3.3-70b-versatile',
-];
-const MODELS_FREE = [
+const MODELS = [
   'meta-llama/llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto)
   'llama-3.3-70b-versatile',                   // 2º: melhor texto
   'deepseek-r1-distill-llama-70b',             // 3º: raciocínio
@@ -26,7 +22,6 @@ const MODELS_FREE = [
   'llama-3.1-8b-instant',                      // 6º: mais rápido
 ];
 
-const PRO_DAILY_LIMIT = 50;
 const FETCH_TIMEOUT_MS = 15000; // 15s timeout em todas as chamadas externas
 
 // =====================================================
@@ -44,19 +39,13 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 // =====================================================
-// 📊 CONTAGEM DIÁRIA POR USUÁRIO (em memória)
+// 🔑 KEYS DISPONÍVEIS (apenas as que foram configuradas)
 // =====================================================
-const dailyCounts = {};
-
-function getTodayKey(uid) {
-  return `${uid}_${new Date().toDateString()}`;
-}
-function getCount(uid) {
-  return dailyCounts[getTodayKey(uid)] || 0;
-}
-function incrementCount(uid) {
-  const key = getTodayKey(uid);
-  dailyCounts[key] = (dailyCounts[key] || 0) + 1;
+function getKeys() {
+  const keys = [];
+  if (GROQ_KEY_1) keys.push({ key: GROQ_KEY_1, nome: 'KEY_1' });
+  if (GROQ_KEY_2) keys.push({ key: GROQ_KEY_2, nome: 'KEY_2' });
+  return keys;
 }
 
 // =====================================================
@@ -153,26 +142,18 @@ function precisaPesquisar(messages) {
 // 💬 ROTA PRINCIPAL DE CHAT
 // =====================================================
 app.post('/chat', async (req, res) => {
-  const { messages, uid, plano } = req.body;
+  const { messages, uid } = req.body;
 
   if (!messages || !uid) {
     return res.status(400).json({ error: 'Parâmetros inválidos.' });
   }
 
-  const count = getCount(uid);
-  const usePro = plano === 'pro' && count < PRO_DAILY_LIMIT;
-  const droppedToFree = plano === 'pro' && !usePro;
-
-  // Seleciona chave e modelos
-  const apiKey = (usePro && GROQ_KEY_PRO) ? GROQ_KEY_PRO : GROQ_KEY_FREE;
-  const models = (usePro && GROQ_KEY_PRO) ? MODELS_PRO : MODELS_FREE;
-
-  // ⚠️ Fallback: se não tem chave PRO mas plano é pro, usa FREE silenciosamente
-  if (usePro && !GROQ_KEY_PRO && GROQ_KEY_FREE) {
-    console.warn('[Chat] GROQ_KEY_PRO ausente — usando FREE como fallback.');
+  const keys = getKeys();
+  if (!keys.length) {
+    return res.status(500).json({ error: 'Nenhuma chave de API configurada.' });
   }
 
-  console.log(`[Chat] uid=${uid} plano=${plano} usePro=${usePro} modelos=${models.join(', ')}`);
+  console.log(`[Chat] uid=${uid} keys disponíveis=${keys.map(k => k.nome).join(', ')}`);
 
   // Pesquisa Tavily se necessário
   let mensagensFinais = messages;
@@ -204,69 +185,72 @@ app.post('/chat', async (req, res) => {
     }
   }
 
-  // Tenta cada combinação de chave+modelo (FREE primeiro, depois PRO como fallback)
-  const tentativas = [];
-  for (const model of MODELS_FREE) tentativas.push({ key: GROQ_KEY_FREE, model, tipo: 'FREE' });
-  if (GROQ_KEY_PRO) {
-    for (const model of MODELS_PRO) tentativas.push({ key: GROQ_KEY_PRO, model, tipo: 'PRO' });
-  }
+  // =====================================================
+  // 🔄 LOOPING CIRCULAR: KEY_1 (6 modelos) → KEY_2 (6 modelos) → KEY_1 ...
+  // Tenta todos os modelos da KEY_1; se todos falharem, vai pra KEY_2.
+  // Se KEY_2 também falhar toda, volta pra KEY_1 — e assim por diante.
+  // Total de tentativas: keys.length * MODELS.length * MAX_ROUNDS
+  // =====================================================
+  const MAX_ROUNDS = 2; // quantas voltas completas no ciclo antes de desistir
+  let keyIndex = 0;
+  let tentativas = 0;
+  const totalMax = keys.length * MODELS.length * MAX_ROUNDS;
 
-  for (const { key, model, tipo } of tentativas) {
-    if (!key) continue;
-    try {
-      console.log(`[Chat] Tentando [${tipo}] ${model}`);
+  while (tentativas < totalMax) {
+    const { key, nome } = keys[keyIndex % keys.length];
 
-      const response = await fetchWithTimeout(
-        'https://api.groq.com/openai/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`
-          },
-          body: JSON.stringify({
-            model,
-            messages: mensagensFinais,
-            max_tokens: 1024,
-            temperature: 0.7
-          })
+    for (const model of MODELS) {
+      tentativas++;
+      try {
+        console.log(`[Chat] [${nome}] Tentando ${model} (tentativa ${tentativas})`);
+
+        const response = await fetchWithTimeout(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${key}`
+            },
+            body: JSON.stringify({
+              model,
+              messages: mensagensFinais,
+              max_tokens: 1024,
+              temperature: 0.7
+            })
+          }
+        );
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
+          console.warn(`[Chat] [${nome}] ${model} falhou (${response.status}): ${errMsg}`);
+          continue; // próximo modelo
         }
-      );
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
-        console.warn(`[Chat] [${tipo}] ${model} falhou (${response.status}): ${errMsg}`);
-        continue;
+        const data = await response.json();
+        const reply = data.choices?.[0]?.message?.content || '…';
+
+        console.log(`[Chat] ✅ Sucesso com [${nome}] ${model}. usouTavily=${usouTavily}`);
+
+        return res.json({ reply, model, keyUsada: nome, usouTavily });
+
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          console.error(`[Chat] [${nome}] Timeout no modelo ${model}`);
+        } else {
+          console.error(`[Chat] [${nome}] Erro no modelo ${model}:`, e.message);
+        }
+        // continua pro próximo modelo
       }
-
-      const data = await response.json();
-      const reply = data.choices?.[0]?.message?.content || '…';
-
-      if (usePro) incrementCount(uid);
-
-      console.log(`[Chat] ✅ Sucesso com ${model}. usouTavily=${usouTavily}`);
-
-      return res.json({
-        reply,
-        model,
-        droppedToFree,
-        usouTavily,
-        proCount: getCount(uid),
-        proLimit: PRO_DAILY_LIMIT
-      });
-
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        console.error(`[Chat] Timeout no modelo ${model}`);
-      } else {
-        console.error(`[Chat] Erro no modelo ${model}:`, e.message);
-      }
-      // Continua para o próximo modelo
     }
+
+    // Todos os 6 modelos desta key falharam → troca de key
+    keyIndex++;
+    console.warn(`[Chat] Todos os modelos de [${nome}] falharam. Trocando para próxima key...`);
   }
 
-  console.error('[Chat] Todos os modelos falharam.');
+  console.error('[Chat] Todas as keys e modelos falharam.');
   return res.status(500).json({
     error: 'Todos os modelos atingiram o limite. Tente novamente em alguns minutos!'
   });
@@ -280,10 +264,9 @@ app.get('/', (req, res) => {
     status: 'ok',
     service: 'PaqueIA Backend',
     tavily: !!TAVILY_API_KEY,
-    groqPro: !!GROQ_KEY_PRO,
-    groqFree: !!GROQ_KEY_FREE,
-    modelsPro: MODELS_PRO,
-    modelsFree: MODELS_FREE,
+    groqKey1: !!GROQ_KEY_1,
+    groqKey2: !!GROQ_KEY_2,
+    models: MODELS,
     uptime: Math.floor(process.uptime()) + 's'
   });
 });
