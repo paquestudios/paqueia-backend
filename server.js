@@ -27,12 +27,13 @@ const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // =====================================================
 
 const MODELS = [
-  'meta-llama/llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto)
-  'llama-3.3-70b-versatile',                   // 2º: melhor texto
-  'deepseek-r1-distill-llama-70b',             // 3º: raciocínio
-  'qwen-qwq-32b',                              // 4º: bom geral
-  'gemma2-9b-it',                              // 5º: leve
-  'llama-3.1-8b-instant',                      // 6º: mais rápido
+  'meta-llama/llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto) — Preview
+  'openai/gpt-oss-120b',                        // 2º: GPT OSS 120B — muito capaz
+  'openai/gpt-oss-20b',                         // 3º: GPT OSS 20B — ultra rápido
+  'llama-3.3-70b-versatile',                    // 4º: melhor texto open-source
+  'qwen/qwen3-32b',                             // 5º: Qwen3 32B — bom geral
+  'gemma2-9b-it',                               // 6º: leve e rápido
+  'llama-3.1-8b-instant',                       // 7º: mais rápido de todos
 ];
 
 const FETCH_TIMEOUT_MS = 15000;
