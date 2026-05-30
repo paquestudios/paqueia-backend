@@ -8,14 +8,11 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 // 🔧 CHAVES DE API (configurar no Render como env vars)
 // =====================================================
-const GROQ_KEY_1   = process.env.GROQ_KEY_1   || '';
-const GROQ_KEY_2   = process.env.GROQ_KEY_2   || '';
-const GROQ_KEY_3   = process.env.GROQ_KEY_3   || '';
-const GROQ_KEY_4   = process.env.GROQ_KEY_4   || '';
-const GROQ_KEY_5   = process.env.GROQ_KEY_5   || '';
-const GROQ_KEY_6   = process.env.GROQ_KEY_6   || '';
-const GROQ_KEY_7   = process.env.GROQ_KEY_7   || '';
-const GROQ_KEY_8   = process.env.GROQ_KEY_8   || '';
+const CEREBRAS_KEY_1 = process.env.CEREBRAS_KEY_1 || '';
+const CEREBRAS_KEY_2 = process.env.CEREBRAS_KEY_2 || '';
+const CEREBRAS_KEY_3 = process.env.CEREBRAS_KEY_3 || '';
+const CEREBRAS_KEY_4 = process.env.CEREBRAS_KEY_4 || '';
+const CEREBRAS_KEY_5 = process.env.CEREBRAS_KEY_5 || '';
 
 const TAVILY_KEY_1 = process.env.TAVILY_KEY_1 || '';
 const TAVILY_KEY_2 = process.env.TAVILY_KEY_2 || '';
@@ -26,16 +23,16 @@ const TAVILY_KEY_6 = process.env.TAVILY_KEY_6 || '';
 const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // =====================================================
 
+// Modelos Cerebras — do melhor pro mais rápido
+// (Cerebras não suporta visão/imagem ainda)
 const MODELS = [
-  'meta-llama/llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto) — Preview
-  'openai/gpt-oss-120b',                        // 2º: GPT OSS 120B — muito capaz
-  'openai/gpt-oss-20b',                         // 3º: GPT OSS 20B — ultra rápido
-  'llama-3.3-70b-versatile',                    // 4º: melhor texto open-source
-  'qwen/qwen3-32b',                             // 5º: Qwen3 32B — bom geral
-  'gemma2-9b-it',                               // 6º: leve e rápido
-  'llama-3.1-8b-instant',                       // 7º: mais rápido de todos
+  'llama-3.3-70b',                          // 1º: melhor qualidade
+  'qwen-3-235b-a22b',                       // 2º: muito capaz (preview)
+  'llama3.1-70b',                           // 3º: bom geral
+  'llama3.1-8b',                            // 4º: mais rápido
 ];
 
+const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
 const FETCH_TIMEOUT_MS = 15000;
 
 // =====================================================
@@ -53,18 +50,15 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 // =====================================================
-// 🔑 GROQ KEYS DISPONÍVEIS
+// 🔑 CEREBRAS KEYS DISPONÍVEIS
 // =====================================================
-function getGroqKeys() {
+function getCerebrasKeys() {
   const keys = [];
-  if (GROQ_KEY_1) keys.push({ key: GROQ_KEY_1, nome: 'KEY_1' });
-  if (GROQ_KEY_2) keys.push({ key: GROQ_KEY_2, nome: 'KEY_2' });
-  if (GROQ_KEY_3) keys.push({ key: GROQ_KEY_3, nome: 'KEY_3' });
-  if (GROQ_KEY_4) keys.push({ key: GROQ_KEY_4, nome: 'KEY_4' });
-  if (GROQ_KEY_5) keys.push({ key: GROQ_KEY_5, nome: 'KEY_5' });
-  if (GROQ_KEY_6) keys.push({ key: GROQ_KEY_6, nome: 'KEY_6' });
-  if (GROQ_KEY_7) keys.push({ key: GROQ_KEY_7, nome: 'KEY_7' });
-  if (GROQ_KEY_8) keys.push({ key: GROQ_KEY_8, nome: 'KEY_8' });
+  if (CEREBRAS_KEY_1) keys.push({ key: CEREBRAS_KEY_1, nome: 'KEY_1' });
+  if (CEREBRAS_KEY_2) keys.push({ key: CEREBRAS_KEY_2, nome: 'KEY_2' });
+  if (CEREBRAS_KEY_3) keys.push({ key: CEREBRAS_KEY_3, nome: 'KEY_3' });
+  if (CEREBRAS_KEY_4) keys.push({ key: CEREBRAS_KEY_4, nome: 'KEY_4' });
+  if (CEREBRAS_KEY_5) keys.push({ key: CEREBRAS_KEY_5, nome: 'KEY_5' });
   return keys;
 }
 
@@ -83,7 +77,7 @@ function getTavilyKeys() {
   return keys;
 }
 
-let tavilyKeyIndex = 0; // looping circular do Tavily
+let tavilyKeyIndex = 0;
 
 // =====================================================
 // 🔍 PESQUISA TAVILY COM LOOPING
@@ -95,7 +89,6 @@ async function tavilySearch(query) {
     return null;
   }
 
-  // Tenta cada key em sequência, começando da atual
   for (let i = 0; i < keys.length; i++) {
     const idx = (tavilyKeyIndex + i) % keys.length;
     const apiKey = keys[idx];
@@ -111,8 +104,7 @@ async function tavilySearch(query) {
             api_key: apiKey,
             query,
             search_depth: 'basic',
-            max_results: 5,
-            include_answer: true
+            max_results: 5
           })
         },
         10000
@@ -121,25 +113,18 @@ async function tavilySearch(query) {
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         console.warn(`[Tavily] KEY_${idx + 1} falhou (${res.status}): ${errText}`);
-        tavilyKeyIndex = (idx + 1) % keys.length; // avança pra próxima
         continue;
       }
 
       const data = await res.json();
-      if (!data.results || !data.results.length) {
-        console.log('[Tavily] Nenhum resultado encontrado.');
-        return null;
+      if (!data.results?.length) {
+        console.warn(`[Tavily] KEY_${idx + 1} sem resultados.`);
+        continue;
       }
 
+      tavilyKeyIndex = (idx + 1) % keys.length;
       console.log(`[Tavily] ✅ Sucesso com KEY_${idx + 1}. ${data.results.length} resultado(s).`);
-
-      let contexto = '';
-      if (data.answer) contexto += `Resumo: ${data.answer}\n\n`;
-      contexto += data.results
-        .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}`)
-        .join('\n\n');
-
-      return contexto;
+      return data.results.map(r => `- ${r.title}: ${r.content}`).join('\n');
 
     } catch (e) {
       if (e.name === 'AbortError') {
@@ -147,11 +132,10 @@ async function tavilySearch(query) {
       } else {
         console.error(`[Tavily] KEY_${idx + 1} erro:`, e.message);
       }
-      tavilyKeyIndex = (idx + 1) % keys.length;
     }
   }
 
-  console.error('[Tavily] Todas as keys falharam.');
+  console.error('[Tavily] Todas as chaves falharam.');
   return null;
 }
 
@@ -197,12 +181,12 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros inválidos.' });
   }
 
-  const groqKeys = getGroqKeys();
-  if (!groqKeys.length) {
-    return res.status(500).json({ error: 'Nenhuma chave Groq configurada.' });
+  const cerebrasKeys = getCerebrasKeys();
+  if (!cerebrasKeys.length) {
+    return res.status(500).json({ error: 'Nenhuma chave Cerebras configurada.' });
   }
 
-  console.log(`[Chat] uid=${uid} groqKeys=${groqKeys.map(k => k.nome).join(', ')}`);
+  console.log(`[Chat] uid=${uid} cerebrasKeys=${cerebrasKeys.map(k => k.nome).join(', ')}`);
 
   // Pesquisa Tavily se necessário
   let mensagensFinais = messages;
@@ -233,17 +217,28 @@ app.post('/chat', async (req, res) => {
     }
   }
 
+  // Remove imagens das mensagens (Cerebras não suporta visão)
+  const mensagensSemImagem = mensagensFinais.map(m => {
+    if (Array.isArray(m.content)) {
+      const textoOnly = m.content
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('\n');
+      return { ...m, content: textoOnly || '(imagem enviada)' };
+    }
+    return m;
+  });
+
   // =====================================================
-  // 🔄 LOOPING CIRCULAR GROQ: KEY_1→KEY_2→...→KEY_8→KEY_1...
-  // Tenta todos os 6 modelos de cada key antes de trocar.
+  // 🔄 LOOPING: KEY_1→KEY_2→...→KEY_5→KEY_1...
   // =====================================================
   const MAX_ROUNDS = 999;
   let keyIndex = 0;
   let tentativas = 0;
-  const totalMax = groqKeys.length * MODELS.length * MAX_ROUNDS;
+  const totalMax = cerebrasKeys.length * MODELS.length * MAX_ROUNDS;
 
   while (tentativas < totalMax) {
-    const { key, nome } = groqKeys[keyIndex % groqKeys.length];
+    const { key, nome } = cerebrasKeys[keyIndex % cerebrasKeys.length];
 
     for (const model of MODELS) {
       tentativas++;
@@ -251,7 +246,7 @@ app.post('/chat', async (req, res) => {
         console.log(`[Chat] [${nome}] Tentando ${model} (tentativa ${tentativas})`);
 
         const response = await fetchWithTimeout(
-          'https://api.groq.com/openai/v1/chat/completions',
+          CEREBRAS_API_URL,
           {
             method: 'POST',
             headers: {
@@ -260,7 +255,7 @@ app.post('/chat', async (req, res) => {
             },
             body: JSON.stringify({
               model,
-              messages: mensagensFinais,
+              messages: mensagensSemImagem,
               max_tokens: 1024,
               temperature: 0.7
             })
@@ -271,6 +266,7 @@ app.post('/chat', async (req, res) => {
           const err = await response.json().catch(() => ({}));
           const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
           console.warn(`[Chat] [${nome}] ${model} falhou (${response.status}): ${errMsg}`);
+          if (response.status === 429) continue;
           continue;
         }
 
@@ -303,38 +299,15 @@ app.post('/chat', async (req, res) => {
 // 🩺 ROTA DE SAÚDE / DIAGNÓSTICO
 // =====================================================
 app.get('/', (req, res) => {
+  const cerebrasKeys = getCerebrasKeys();
+  const tavilyKeys = getTavilyKeys();
   res.json({
     status: 'ok',
     service: 'PaqueIA Backend',
-    groqKey1: !!GROQ_KEY_1,
-    groqKey2: !!GROQ_KEY_2,
-    groqKey3: !!GROQ_KEY_3,
-    groqKey4: !!GROQ_KEY_4,
-    groqKey5: !!GROQ_KEY_5,
-    groqKey6: !!GROQ_KEY_6,
-    groqKey7: !!GROQ_KEY_7,
-    groqKey8: !!GROQ_KEY_8,
-    tavilyKey1: !!TAVILY_KEY_1,
-    tavilyKey2: !!TAVILY_KEY_2,
-    tavilyKey3: !!TAVILY_KEY_3,
-    tavilyKey4: !!TAVILY_KEY_4,
-    tavilyKey5: !!TAVILY_KEY_5,
-    tavilyKey6: !!TAVILY_KEY_6,
-    tavilyKey7: !!TAVILY_KEY_7,
+    cerebrasKeys: Object.fromEntries(cerebrasKeys.map(k => [k.nome, true])),
+    tavilyKeys: tavilyKeys.length,
     models: MODELS,
-    uptime: Math.floor(process.uptime()) + 's'
-  });
-});
-
-// Rota de teste Tavily
-app.get('/test-tavily', async (req, res) => {
-  const query = req.query.q || 'notícias do Brasil hoje';
-  const resultado = await tavilySearch(query);
-  res.json({
-    query,
-    tavilyKeys: getTavilyKeys().length,
-    resultado: resultado ? resultado.substring(0, 800) + '…' : null,
-    tavilyOk: !!resultado
+    uptime: `${Math.floor(process.uptime())}s`
   });
 });
 
