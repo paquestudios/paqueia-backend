@@ -26,10 +26,13 @@ const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // Modelos Cerebras — do melhor pro mais rápido
 // (Cerebras não suporta visão/imagem ainda)
 const MODELS = [
-  'llama-3.3-70b',                          // 1º: melhor qualidade
-  'qwen-3-235b-a22b',                       // 2º: muito capaz (preview)
-  'llama3.1-70b',                           // 3º: bom geral
-  'llama3.1-8b',                            // 4º: mais rápido
+  'llama-4-scout-17b-16e-instruct',         // 1º: melhor (visão + texto)
+  'gpt-oss-120b',                           // 2º: GPT OSS 120B — muito capaz
+  'llama-3.3-70b',                          // 3º: melhor texto open-source
+  'qwen-3-235b-a22b-instruct-2507',         // 4º: Qwen3 235B — poderoso
+  'qwen-3-32b',                             // 5º: Qwen3 32B — bom geral
+  'zai-glm-4.7',                            // 6º: Z.ai GLM — alternativo
+  'llama3.1-8b',                            // 7º: mais rápido
 ];
 
 const CEREBRAS_API_URL = 'https://api.cerebras.ai/v1/chat/completions';
