@@ -192,7 +192,7 @@ app.post('/chat', async (req, res) => {
 
   const cerebrasKeys = getCerebrasKeys();
   if (!cerebrasKeys.length) {
-    return res.status(500).json({ error: 'Nenhuma chave Groq configurada.' });
+    return res.status(500).json({ error: 'Nenhuma chave Cerebras configurada.' });
   }
 
   console.log(`[Chat] uid=${uid} cerebrasKeys=${cerebrasKeys.map(k => k.nome).join(', ')}`);
@@ -304,9 +304,6 @@ app.get('/', (req, res) => {
     cerebrasKey3: !!CEREBRAS_KEY_3,
     cerebrasKey4: !!CEREBRAS_KEY_4,
     cerebrasKey5: !!CEREBRAS_KEY_5,
-    cerebrasKey6: !!CEREBRAS_KEY_6,
-    cerebrasKey7: !!CEREBRAS_KEY_7,
-    cerebrasKey8: !!CEREBRAS_KEY_8,
     tavilyKey1: !!TAVILY_KEY_1,
     tavilyKey2: !!TAVILY_KEY_2,
     tavilyKey3: !!TAVILY_KEY_3,
