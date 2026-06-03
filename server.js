@@ -2,7 +2,15 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: function(origin, callback) {
+    callback(null, true);
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
+app.options("*", cors());
 app.use(express.json({ limit: '10mb' }));
 
 // =====================================================
