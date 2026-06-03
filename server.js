@@ -8,14 +8,11 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 // 🔧 CHAVES DE API (configurar no Render como env vars)
 // =====================================================
-const GROQ_KEY_1   = process.env.GROQ_KEY_1   || '';
-const GROQ_KEY_2   = process.env.GROQ_KEY_2   || '';
-const GROQ_KEY_3   = process.env.GROQ_KEY_3   || '';
-const GROQ_KEY_4   = process.env.GROQ_KEY_4   || '';
-const GROQ_KEY_5   = process.env.GROQ_KEY_5   || '';
-const GROQ_KEY_6   = process.env.GROQ_KEY_6   || '';
-const GROQ_KEY_7   = process.env.GROQ_KEY_7   || '';
-const GROQ_KEY_8   = process.env.GROQ_KEY_8   || '';
+const CEREBRAS_KEY_1   = process.env.CEREBRAS_KEY_1   || '';
+const CEREBRAS_KEY_2   = process.env.CEREBRAS_KEY_2   || '';
+const CEREBRAS_KEY_3   = process.env.CEREBRAS_KEY_3   || '';
+const CEREBRAS_KEY_4   = process.env.CEREBRAS_KEY_4   || '';
+const CEREBRAS_KEY_5   = process.env.CEREBRAS_KEY_5   || '';
 
 const TAVILY_KEY_1 = process.env.TAVILY_KEY_1 || '';
 const TAVILY_KEY_2 = process.env.TAVILY_KEY_2 || '';
@@ -52,18 +49,15 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 // =====================================================
-// 🔑 GROQ KEYS DISPONÍVEIS
+// 🔑 CEREBRAS KEYS DISPONÍVEIS
 // =====================================================
-function getGroqKeys() {
+function getCerebrasKeys() {
   const keys = [];
-  if (GROQ_KEY_1) keys.push({ key: GROQ_KEY_1, nome: 'KEY_1' });
-  if (GROQ_KEY_2) keys.push({ key: GROQ_KEY_2, nome: 'KEY_2' });
-  if (GROQ_KEY_3) keys.push({ key: GROQ_KEY_3, nome: 'KEY_3' });
-  if (GROQ_KEY_4) keys.push({ key: GROQ_KEY_4, nome: 'KEY_4' });
-  if (GROQ_KEY_5) keys.push({ key: GROQ_KEY_5, nome: 'KEY_5' });
-  if (GROQ_KEY_6) keys.push({ key: GROQ_KEY_6, nome: 'KEY_6' });
-  if (GROQ_KEY_7) keys.push({ key: GROQ_KEY_7, nome: 'KEY_7' });
-  if (GROQ_KEY_8) keys.push({ key: GROQ_KEY_8, nome: 'KEY_8' });
+  if (CEREBRAS_KEY_1) keys.push({ key: CEREBRAS_KEY_1, nome: 'KEY_1' });
+  if (CEREBRAS_KEY_2) keys.push({ key: CEREBRAS_KEY_2, nome: 'KEY_2' });
+  if (CEREBRAS_KEY_3) keys.push({ key: CEREBRAS_KEY_3, nome: 'KEY_3' });
+  if (CEREBRAS_KEY_4) keys.push({ key: CEREBRAS_KEY_4, nome: 'KEY_4' });
+  if (CEREBRAS_KEY_5) keys.push({ key: CEREBRAS_KEY_5, nome: 'KEY_5' });
   return keys;
 }
 
@@ -196,12 +190,12 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Parâmetros inválidos.' });
   }
 
-  const groqKeys = getGroqKeys();
-  if (!groqKeys.length) {
+  const cerebrasKeys = getCerebrasKeys();
+  if (!cerebrasKeys.length) {
     return res.status(500).json({ error: 'Nenhuma chave Groq configurada.' });
   }
 
-  console.log(`[Chat] uid=${uid} groqKeys=${groqKeys.map(k => k.nome).join(', ')}`);
+  console.log(`[Chat] uid=${uid} cerebrasKeys=${cerebrasKeys.map(k => k.nome).join(', ')}`);
 
   // Pesquisa Tavily se necessário
   let mensagensFinais = messages;
@@ -233,16 +227,16 @@ app.post('/chat', async (req, res) => {
   }
 
   // =====================================================
-  // 🔄 LOOPING CIRCULAR GROQ: KEY_1→KEY_2→...→KEY_8→KEY_1...
+  // 🔄 LOOPING CIRCULAR CEREBRAS: KEY_1→KEY_2→...→KEY_8→KEY_1...
   // Tenta todos os 6 modelos de cada key antes de trocar.
   // =====================================================
   const MAX_ROUNDS = 999;
   let keyIndex = 0;
   let tentativas = 0;
-  const totalMax = groqKeys.length * MODELS.length * MAX_ROUNDS;
+  const totalMax = cerebrasKeys.length * MODELS.length * MAX_ROUNDS;
 
   while (tentativas < totalMax) {
-    const { key, nome } = groqKeys[keyIndex % groqKeys.length];
+    const { key, nome } = cerebrasKeys[keyIndex % cerebrasKeys.length];
 
     for (const model of MODELS) {
       tentativas++;
@@ -250,7 +244,7 @@ app.post('/chat', async (req, res) => {
         console.log(`[Chat] [${nome}] Tentando ${model} (tentativa ${tentativas})`);
 
         const response = await fetchWithTimeout(
-          'https://api.groq.com/openai/v1/chat/completions',
+          'https://api.cerebras.ai/v1/chat/completions',
           {
             method: 'POST',
             headers: {
@@ -305,14 +299,14 @@ app.get('/', (req, res) => {
   res.json({
     status: 'ok',
     service: 'PaqueIA Backend',
-    groqKey1: !!GROQ_KEY_1,
-    groqKey2: !!GROQ_KEY_2,
-    groqKey3: !!GROQ_KEY_3,
-    groqKey4: !!GROQ_KEY_4,
-    groqKey5: !!GROQ_KEY_5,
-    groqKey6: !!GROQ_KEY_6,
-    groqKey7: !!GROQ_KEY_7,
-    groqKey8: !!GROQ_KEY_8,
+    cerebrasKey1: !!CEREBRAS_KEY_1,
+    cerebrasKey2: !!CEREBRAS_KEY_2,
+    cerebrasKey3: !!CEREBRAS_KEY_3,
+    cerebrasKey4: !!CEREBRAS_KEY_4,
+    cerebrasKey5: !!CEREBRAS_KEY_5,
+    cerebrasKey6: !!CEREBRAS_KEY_6,
+    cerebrasKey7: !!CEREBRAS_KEY_7,
+    cerebrasKey8: !!CEREBRAS_KEY_8,
     tavilyKey1: !!TAVILY_KEY_1,
     tavilyKey2: !!TAVILY_KEY_2,
     tavilyKey3: !!TAVILY_KEY_3,
