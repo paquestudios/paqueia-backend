@@ -235,7 +235,7 @@ app.post('/chat', async (req, res) => {
   // 🔄 LOOPING CIRCULAR CEREBRAS: KEY_1→KEY_2→...→KEY_8→KEY_1...
   // Tenta todos os 6 modelos de cada key antes de trocar.
   // =====================================================
-  const MAX_ROUNDS = 999;
+  const MAX_ROUNDS = 1;
   let keyIndex = 0;
   let tentativas = 0;
   const totalMax = cerebrasKeys.length * MODELS.length * MAX_ROUNDS;
