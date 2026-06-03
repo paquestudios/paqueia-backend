@@ -24,12 +24,9 @@ const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // =====================================================
 
 const MODELS = [
-  'meta-llama/llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto)
-  'llama-3.3-70b-versatile',                   // 2º: melhor texto
-  'deepseek-r1-distill-llama-70b',             // 3º: raciocínio
-  'qwen-qwq-32b',                              // 4º: bom geral
-  'gemma2-9b-it',                              // 5º: leve
-  'llama-3.1-8b-instant',                      // 6º: mais rápido
+  'llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto)
+  'llama-3.3-70b',                  // 2º: melhor texto, rápido
+  'llama3.1-8b',                    // 3º: mais leve e rápido
 ];
 
 const FETCH_TIMEOUT_MS = 15000;
