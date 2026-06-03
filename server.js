@@ -259,7 +259,7 @@ app.post('/chat', async (req, res) => {
             body: JSON.stringify({
               model,
               messages: mensagensFinais,
-              max_tokens: 1024,
+              max_completion_tokens: 1024,
               temperature: 0.7
             })
           }
