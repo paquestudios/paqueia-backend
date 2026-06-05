@@ -269,7 +269,11 @@ app.post('/chat', async (req, res) => {
           const err = await response.json().catch(() => ({}));
           const errMsg = err?.error?.message || `Erro HTTP ${response.status}`;
           console.warn(`[Chat] [${nome}] ${model} falhou (${response.status}): ${errMsg}`);
-          continue;
+          // Se for 429 (rate limit) ou 401 (auth), pula direto pra próxima key
+          if (response.status === 429 || response.status === 401 || response.status === 403) {
+            break; // sai do loop de modelos e vai pra próxima key
+          }
+          continue; // outros erros: tenta próximo modelo da mesma key
         }
 
         const data = await response.json();
