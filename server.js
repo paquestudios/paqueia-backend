@@ -32,9 +32,8 @@ const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // =====================================================
 
 const MODELS = [
-  'llama-4-scout-17b-16e-instruct', // 1º: melhor (visão + texto)
-  'llama-3.3-70b',                  // 2º: melhor texto, rápido
-  'llama3.1-8b',                    // 3º: mais leve e rápido
+  'gpt-oss-120b',  // 1º: melhor (120B, raciocínio avançado)
+  'zai-glm-4.7',  // 2º: bom geral, rápido
 ];
 
 const FETCH_TIMEOUT_MS = 15000;
