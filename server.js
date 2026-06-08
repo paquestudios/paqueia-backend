@@ -16,7 +16,7 @@ app.use(express.json({ limit: '10mb' }));
 // =====================================================
 // 🔧 CHAVES DE API (configurar no Render como env vars)
 // =====================================================
-const CEREBRAS_KEY_1   = process.env.CEREBRAS_KEY_1   || '';
+
 const CEREBRAS_KEY_2   = process.env.CEREBRAS_KEY_2   || '';
 const CEREBRAS_KEY_3   = process.env.CEREBRAS_KEY_3   || '';
 const CEREBRAS_KEY_4   = process.env.CEREBRAS_KEY_4   || '';
@@ -58,7 +58,6 @@ async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
 // =====================================================
 function getCerebrasKeys() {
   const keys = [];
-  if (CEREBRAS_KEY_1) keys.push({ key: CEREBRAS_KEY_1, nome: 'KEY_1' });
   if (CEREBRAS_KEY_2) keys.push({ key: CEREBRAS_KEY_2, nome: 'KEY_2' });
   if (CEREBRAS_KEY_3) keys.push({ key: CEREBRAS_KEY_3, nome: 'KEY_3' });
   if (CEREBRAS_KEY_4) keys.push({ key: CEREBRAS_KEY_4, nome: 'KEY_4' });
@@ -308,7 +307,6 @@ app.get('/', (req, res) => {
   res.json({
     status: 'ok',
     service: 'PaqueIA Backend',
-    cerebrasKey1: !!CEREBRAS_KEY_1,
     cerebrasKey2: !!CEREBRAS_KEY_2,
     cerebrasKey3: !!CEREBRAS_KEY_3,
     cerebrasKey4: !!CEREBRAS_KEY_4,
