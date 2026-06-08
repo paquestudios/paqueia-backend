@@ -344,10 +344,15 @@ app.post('/musica', async (req, res) => {
 
   try {
     console.log('[Música] Gerando:', prompt.substring(0, 80));
-    const encoded = encodeURIComponent(prompt.substring(0, 300));
-    const url = `https://audio.pollinations.ai/${encoded}`;
-
-    const resp = await fetch(url, { method: 'GET' });
+    const resp = await fetch('https://gen.pollinations.ai/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: prompt.substring(0, 300),
+        voice: 'nova'
+      })
+    });
     if (!resp.ok) throw new Error(`Pollinations retornou ${resp.status}`);
 
     const buffer = await resp.arrayBuffer();
