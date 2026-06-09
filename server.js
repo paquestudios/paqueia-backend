@@ -30,6 +30,11 @@ const TAVILY_KEY_5 = process.env.TAVILY_KEY_5 || '';
 const TAVILY_KEY_6 = process.env.TAVILY_KEY_6 || '';
 const TAVILY_KEY_7 = process.env.TAVILY_KEY_7 || '';
 // =====================================================
+const ELEVENLABS_KEY_1 = process.env.ELEVENLABS_KEY_1 || '';
+const ELEVENLABS_KEY_2 = process.env.ELEVENLABS_KEY_2 || '';
+const ELEVENLABS_KEY_3 = process.env.ELEVENLABS_KEY_3 || '';
+const ELEVENLABS_KEY_4 = process.env.ELEVENLABS_KEY_4 || '';
+// =====================================================
 
 const MODELS = [
   'gpt-oss-120b',  // 1º: melhor (120B, raciocínio avançado)
@@ -336,36 +341,77 @@ app.get('/test-tavily', async (req, res) => {
 
 
 // =====================================================
-// 🎵 ROTA DE MÚSICA — proxy para Pollinations
+// 🎵 ROTA DE MÚSICA — ElevenLabs TTS com fallback entre keys
 // =====================================================
+function getElevenLabsKeys() {
+  const keys = [];
+  if (ELEVENLABS_KEY_1) keys.push({ key: ELEVENLABS_KEY_1, nome: 'KEY_1' });
+  if (ELEVENLABS_KEY_2) keys.push({ key: ELEVENLABS_KEY_2, nome: 'KEY_2' });
+  if (ELEVENLABS_KEY_3) keys.push({ key: ELEVENLABS_KEY_3, nome: 'KEY_3' });
+  if (ELEVENLABS_KEY_4) keys.push({ key: ELEVENLABS_KEY_4, nome: 'KEY_4' });
+  return keys;
+}
+
+// Limita a 170 palavras
+function limitarPalavras(texto, maxPalavras = 170) {
+  const palavras = texto.trim().split(/\s+/);
+  if (palavras.length <= maxPalavras) return texto;
+  return palavras.slice(0, maxPalavras).join(' ');
+}
+
 app.post('/musica', async (req, res) => {
   const { prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt obrigatório.' });
 
-  try {
-    console.log('[Música] Gerando:', prompt.substring(0, 80));
-    const resp = await fetch('https://gen.pollinations.ai/v1/audio/speech', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: prompt.substring(0, 300),
-        voice: 'nova'
-      })
-    });
-    if (!resp.ok) throw new Error(`Pollinations retornou ${resp.status}`);
-
-    const buffer = await resp.arrayBuffer();
-    if (buffer.byteLength < 1000) throw new Error('Áudio vazio ou inválido.');
-
-    res.set('Content-Type', 'audio/mpeg');
-    res.set('Content-Length', buffer.byteLength);
-    res.send(Buffer.from(buffer));
-    console.log('[Música] ✅ Enviado', buffer.byteLength, 'bytes');
-  } catch(e) {
-    console.error('[Música] Erro:', e.message);
-    res.status(500).json({ error: e.message });
+  const elevenKeys = getElevenLabsKeys();
+  if (!elevenKeys.length) {
+    return res.status(500).json({ error: 'Nenhuma chave ElevenLabs configurada.' });
   }
+
+  const textoLimitado = limitarPalavras(prompt);
+  console.log(`[Música] Gerando (${textoLimitado.split(/\s+/).length} palavras):`, textoLimitado.substring(0, 80));
+
+  for (const { key, nome } of elevenKeys) {
+    try {
+      console.log(`[Música] Tentando ElevenLabs ${nome}`);
+      const resp = await fetchWithTimeout(
+        'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'xi-api-key': key
+          },
+          body: JSON.stringify({
+            text: textoLimitado,
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+          })
+        },
+        30000
+      );
+
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => '');
+        console.warn(`[Música] ${nome} falhou (${resp.status}): ${err.substring(0, 100)}`);
+        continue;
+      }
+
+      const buffer = await resp.arrayBuffer();
+      if (buffer.byteLength < 1000) throw new Error('Áudio vazio ou inválido.');
+
+      res.set('Content-Type', 'audio/mpeg');
+      res.set('Content-Length', buffer.byteLength);
+      res.send(Buffer.from(buffer));
+      console.log(`[Música] ✅ Sucesso com ${nome}. ${buffer.byteLength} bytes.`);
+      return;
+
+    } catch(e) {
+      console.error(`[Música] ${nome} erro:`, e.message);
+    }
+  }
+
+  res.status(500).json({ error: 'Todas as keys ElevenLabs falharam. Tente novamente!' });
 });
 // =====================================================
 
