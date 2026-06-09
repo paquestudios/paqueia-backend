@@ -411,7 +411,7 @@ app.post('/musica', async (req, res) => {
     }
   }
 
-  res.status(500).json({ error: 'Todas as keys ElevenLabs falharam. Tente novamente!' });
+  res.status(503).json({ error: 'Função em manutenção, sem data de início.' });
 });
 // =====================================================
 
